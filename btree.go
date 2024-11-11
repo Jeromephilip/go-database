@@ -1,8 +1,9 @@
 package btree
 
 import (
-	"fmt"
+	"bytes"
 	"encoding/binary"
+	"fmt"
 	"unsafe"
 
 	"github.com/Jeromephilip/go-database/utils"
@@ -47,7 +48,7 @@ func (node BNode) setHeader(btype uint16, nkeys uint16) {
 // manage pointers within the node by encoding and decoding 8-byte positions in mem
 // retrives a pointer for a specific key index
 func (node BNode) getPtr(idx uint16) uint64 {
-	assert(idx < node.nkeys(), "index less than number of keys")
+	utils.Assert(idx < node.nkeys(), "index less than value")
 	pos := HEADER + 8*idx
 	return binary.LittleEndian.Uint64(node[pos:])
 }
@@ -57,7 +58,7 @@ func (node BNode) setPtr(idx uint16, val uint64)
 
 
 func offsetPos(node BNode, idx uint16) uint16 {
-	assert(1 <= idx && idx <= node.nkeys())
+	utils.Assert(1 <= idx && idx <= node.nkeys(), "not found offset position")
 }
 
 // Manage key-value offsets within the node
@@ -72,13 +73,13 @@ func (node BNode) setOffset(idx uint16, offset uint16)
 
 // kvPos returns the positon of the nth KV pair relative to the whole node.
 func (node BNode) kvPos(idx uint16) uint16 {
-	assert(idx <= node.nkeys())
+	utils.Assert(idx <= node.nkeys(), "index is greater than nkeys")
 	return HEADER + 8*node.nkeys() + 2*node.nkeys() + node.getOffset(idx)
 }
 
 // computes the position of the key-value pair within the node
 func (node BNode) getKey(idx uint16) []byte {
-	assert(idx < node.nkeys())
+	utils.Assert(idx < node.nkeys(), "index is greater than nkeys")
 	pos := node.kvPos(idx)
 	klen := binary.LittleEndian.Uint16(node[pos:])
 
@@ -161,14 +162,39 @@ func nodeReplaceKidN(
 	new.setHeader(BNODE_NODE, old.nkeys()+inc-1)
 	nodeAppendRange(new, old, 0, 0, idx)
 	for i, node := range kids {
-		nodeAppendKV(new, idx+uint16(i), tree.new(Node), node.getKey(0), nil)
+		nodeAppendKV(new, idx+uint16(i), tree.new(node), node.getKey(0), nil)
 		// 				  ^position      ^pointer        ^key            ^val
 	}
 	nodeAppendRange(new, old, idx+inc, idx+1, old.nkeys()-(idx+1))
 }
 
+func nodeSplit2(left BNode, right BNode, old BNode) {
+
+}
+
+func nodeSplit3(old BNode) (uint16, [3]BNode) {
+	if old.nbytes() <= BTREE_PAGE_SIZE {
+		old = old[:BTREE_PAGE_SIZE]
+		return 1, [3]BNode{old}
+	}
+
+	left := BNode(make([]byte, 2*BTREE_PAGE_SIZE))
+	right := BNode(make([]byte, BTREE_PAGE_SIZE))
+	nodeSplit2(left, right, old)
+
+	if left.nbytes() <= BTREE_PAGE_SIZE {
+		left = left[:BTREE_PAGE_SIZE]
+		return 2, [3]BNode{left, right} // 2 nodes
+	}
+
+	leftleft := BNode(make([]byte, BTREE_PAGE_SIZE))
+	middle := BNode(make([]byte, BTREE_PAGE_SIZE))
+	nodeSplit2(leftleft, middle, left)
+	utils.Assert(leftleft.nbytes() <= BTREE_PAGE_SIZE, "left node less than the defined page size")
+	return 3, [3]BNode{leftleft, middle, right} // 3 nodes
+}
 
 func init() {
 	node1max := HEADER + 8 + 2 + 4 + BTREE_MAX_KEY_SIZE + BTREE_MAX_VAL_SIZE
-	assert(node1max <= BTREE_PAGE_SIZE)
+	utils.Assert(node1max <= BTREE_PAGE_SIZE, "Node is greater than defined page size")
 }
