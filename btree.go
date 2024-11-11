@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"encoding/binary"
 	"unsafe"
+
+	"github.com/Jeromephilip/go-database/utils"
 )
 
 const HEADER = 4
@@ -45,7 +47,7 @@ func (node BNode) setHeader(btype uint16, nkeys uint16) {
 // manage pointers within the node by encoding and decoding 8-byte positions in mem
 // retrives a pointer for a specific key index
 func (node BNode) getPtr(idx uint16) uint64 {
-	assert(idx < node.nkeys())
+	assert(idx < node.nkeys(), "index less than number of keys")
 	pos := HEADER + 8*idx
 	return binary.LittleEndian.Uint64(node[pos:])
 }
@@ -66,7 +68,7 @@ func (node BNode) getOffset(idx uint16) uint16 {
 
 	return binary.LittleEndian.Uint16(node[offsetPos(node, idx):])
 }
-func (node BNode) setOffset(idx uint16 offset uint16)
+func (node BNode) setOffset(idx uint16, offset uint16)
 
 // kvPos returns the positon of the nth KV pair relative to the whole node.
 func (node BNode) kvPos(idx uint16) uint16 {
@@ -74,6 +76,7 @@ func (node BNode) kvPos(idx uint16) uint16 {
 	return HEADER + 8*node.nkeys() + 2*node.nkeys() + node.getOffset(idx)
 }
 
+// computes the position of the key-value pair within the node
 func (node BNode) getKey(idx uint16) []byte {
 	assert(idx < node.nkeys())
 	pos := node.kvPos(idx)
@@ -82,8 +85,7 @@ func (node BNode) getKey(idx uint16) []byte {
 	return node[pos+4:][:klen]
 }
 
-func (node BNode) getVal(idx uint16) []byte
-
+// Retrieves the key at a specific index by decoding it from the encoded position and length in the node
 func (node BNode) getVal(idx uint16) []byte
 
 func (node BNode) nbytes() uint16 {
@@ -112,9 +114,13 @@ func nodeLookupLE(node BNode, key []byte) uint16 {
 }
 
 // Insering leaves into B+Tree
+// GOALS:
+// update the header to reflect the new key count,
+// copies existing keys before and after the insertion index
+// inserts the new key-value pair at the correct index
 func leafInsert(
 	new BNode, old BNode, idx uint16,
-	key []byte, val []byte 
+	key []byte, val []byte,
 ) {
 	new.setHeader(BNODE_LEAF, old.nkeys() + 1) // setup the header
 	nodeAppendRange(new, old, 0, 0, idx)
@@ -124,6 +130,9 @@ func leafInsert(
 
 // NODE COPYING FUNCTIONS
 // copy a KV into the position
+// add a specific key-value pair to a specific position within a node. It writes
+// the key's length, value's length, and then copies the key and values bytes into
+// correct location
 func nodeAppendKV(new BNode, idx uint16, ptr uint64, key []byte, val []byte) {
 	// ptrs
 	new.setPtr(idx, ptr)
